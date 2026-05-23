@@ -22,7 +22,7 @@ const char *timeZone = "CET-1CEST,M3.5.0/03,M10.5.0/03"; // TimeZone rule for Eu
 uint8_t *frameBuffer = NULL;
 JsonDocument doc;                                               // Memory for the JSON data before deserializing
 char buffer[200];                                               // Buffer for sprintf
-int price[2][24];                                               // 24h = 24 prices, each for the current and the next day
+int price[2][96];                                               // 24h * 4 = 96 prices, each for the current and the next day
 int minPrice[2] = {0, 0}, maxPrice[2] = {0, 0};                 // Each for the current and the next day
 long priceAverage[2] = {0, 0};                                  // Average value, each for the current and the next day
 long average[2] = {0, 0};                                       // Here the average from 13-24h of the current day and 0-23h of the next day for ePaper display
@@ -74,39 +74,39 @@ void extractPricesFromJson() // Extract prices from JSON string and output in a 
     priceAverage[1] = 0;
     for (int dayIndex = 0; dayIndex < 2; dayIndex++)
     {
-        for (int hour = 0; hour < 24; hour++)
+        for (int qhour = 0; qhour < 96; qhour++)
         {
-            priceInDouble = doc["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"][day[dayIndex]][hour]["total"];
-            price[dayIndex][hour] = int(10000 * priceInDouble);
-            sprintf(buffer, "Day= %9s, dayIndex=%2d, hour=%2d, Price= %4d\n", day[dayIndex], dayIndex, hour, price[dayIndex][hour]);
+            priceInDouble = doc["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"][day[dayIndex]][qhour]["total"];
+            price[dayIndex][qhour] = int(10000 * priceInDouble);
+            sprintf(buffer, "Day= %9s, dayIndex=%2d, qhour=%2d, Price= %4d\n", day[dayIndex], dayIndex, qhour, price[dayIndex][qhour]);
             Serial.print(buffer);
-            int hourAdjusted;
-            if (hour == 23)
-                hourAdjusted = 0;
+            int qhourAdjusted;
+            if (qhour == 95)
+                qhourAdjusted = 0;
             else
-                hourAdjusted = hour;
-            if (hour > 0)
+                qhourAdjusted = qhour;
+            if (qhour > 0)
             {
-                if (price[dayIndex][minPrice[dayIndex]] > price[dayIndex][hourAdjusted])
-                    minPrice[dayIndex] = hourAdjusted;
-                if (price[dayIndex][maxPrice[dayIndex]] < price[dayIndex][hourAdjusted])
-                    maxPrice[dayIndex] = hourAdjusted;
+                if (price[dayIndex][minPrice[dayIndex]] > price[dayIndex][qhourAdjusted])
+                    minPrice[dayIndex] = qhourAdjusted;
+                if (price[dayIndex][maxPrice[dayIndex]] < price[dayIndex][qhourAdjusted])
+                    maxPrice[dayIndex] = qhourAdjusted;
             }
-            priceAverage[dayIndex] = price[dayIndex][hour] + priceAverage[dayIndex]; // Calculate average value part 1
+            priceAverage[dayIndex] = price[dayIndex][qhour] + priceAverage[dayIndex]; // Calculate average value part 1
         }
-        priceAverage[dayIndex] = priceAverage[dayIndex] / 24; // Calculate average value part 2
+        priceAverage[dayIndex] = priceAverage[dayIndex] / 96; // Calculate average value part 2
     }
     Serial.println("\n            Today        ||||             Tomorrow"); // Output in compact table
-    for (int hourAdjusted = 0; hourAdjusted < 12; hourAdjusted++)
+    for (int qhourAdjusted = 0; qhourAdjusted < 12; qhourAdjusted++)
     {
-        sprintf(buffer, "hour=%2d: %4d || hour=%2d: %4d |||| hour=%2d: %4d || hour=%2d: %4d ||\n", hourAdjusted, price[0][hourAdjusted], hourAdjusted + 12, price[0][hourAdjusted + 12], hourAdjusted, price[1][hourAdjusted], hourAdjusted + 12, price[1][hourAdjusted + 12]);
+        sprintf(buffer, "qhour=%2d: %4d || qhour=%2d: %4d |||| qhour=%2d: %4d || qhour=%2d: %4d ||\n", qhourAdjusted, price[0][qhourAdjusted], qhourAdjusted + 12, price[0][qhourAdjusted + 12], qhourAdjusted, price[1][qhourAdjusted], qhourAdjusted + 12, price[1][qhourAdjusted + 12]);
         Serial.print(buffer);
     }
-    sprintf(buffer, " Min hour: %2d, %4d,        |||| Min hour: %2d, %4d, \n", minPrice[0], price[0][minPrice[0]], minPrice[1], price[1][minPrice[1]]);
-    sprintf(buffer + strlen(buffer), " Max hour: %2d, %4d,        |||| Max hour: %2d, %4d, \n", maxPrice[0], price[0][maxPrice[0]], maxPrice[1], price[1][maxPrice[1]]);
+    sprintf(buffer, " Min qhour: %2d, %4d,        |||| Min qhour: %2d, %4d, \n", minPrice[0], price[0][minPrice[0]], minPrice[1], price[1][minPrice[1]]);
+    sprintf(buffer + strlen(buffer), " Max qhour: %2d, %4d,        |||| Max qhour: %2d, %4d, \n", maxPrice[0], price[0][maxPrice[0]], maxPrice[1], price[1][maxPrice[1]]);
     sprintf(buffer + strlen(buffer), "Average: %4d         |||| Average: %4d\n\n", priceAverage[0], priceAverage[1]);
     Serial.print(buffer);
-    sprintf(buffer, "   <hour:%2d, >hour:%2d, =:%4d  ||||   <hour:%2d, >hour:%2d, =:%4d \n", minPrice[0], maxPrice[0], priceAverage[0], minPrice[1], maxPrice[1], priceAverage[1]);
+    sprintf(buffer, "   <qhour:%2d, >qhour:%2d, =:%4d  ||||   <qhour:%2d, >qhour:%2d, =:%4d \n", minPrice[0], maxPrice[0], priceAverage[0], minPrice[1], maxPrice[1], priceAverage[1]);
     Serial.print(buffer);
 }
 
@@ -117,34 +117,34 @@ void calculateEpaperMinMax()
     minVal = 30000, maxVal = 0, minRounded, maxRounded, spread; // For ePaper display
     int sumTomorrow = 0;
 
-    for (int hour = 13; hour < 24; hour++)
+    for (int qhour = 13; qhour < 96; qhour++)
     { // Determine min, max, and average values for the first day, 13-23h
-        if (price[0][hour] < minVal)
-            minVal = price[0][hour];
-        if (price[0][hour] > maxVal)
-            maxVal = price[0][hour];
-        average[0] = average[0] + price[0][hour];
+        if (price[0][qhour] < minVal)
+            minVal = price[0][qhour];
+        if (price[0][qhour] > maxVal)
+            maxVal = price[0][qhour];
+        average[0] = average[0] + price[0][qhour];
     }
 
-    for (int hour = 0; hour < 24; hour++)
+    for (int qhour = 0; qhour < 96; qhour++)
     {
-        sumTomorrow = sumTomorrow + price[1][hour];
+        sumTomorrow = sumTomorrow + price[1][qhour];
     }
     if (sumTomorrow != 0)
     {
-        for (int hour = 0; hour < 24; hour++)
+        for (int qhour = 0; qhour < 96; qhour++)
         { // Determine min, max, and average values for the second day, 0-23h
-            if (price[1][hour] < minVal)
-                minVal = price[1][hour];
-            if (price[1][hour] > maxVal)
-                maxVal = price[1][hour];
-            average[1] = average[1] + price[1][hour];
+            if (price[1][qhour] < minVal)
+                minVal = price[1][qhour];
+            if (price[1][qhour] > maxVal)
+                maxVal = price[1][qhour];
+            average[1] = average[1] + price[1][qhour];
         }
         tibberPriceUpdated = true;
     }
 
-    average[0] = average[0] / 11;          // Day1 from 13-23h
-    average[1] = average[1] / 24;          // Day2 from 0-23h
+    average[0] = average[0] / 44;          // Day1 from 13-23h
+    average[1] = average[1] / 96;          // Day2 from 0-23h
     minRounded = (minVal / 100 - 2) * 100; // Rounded down to nearest 100 -200
     maxRounded = (maxVal / 100 + 1) * 100; // Rounded up to nearest 100 +100
     spread = maxRounded - minRounded;      // Spread
@@ -163,7 +163,7 @@ void fetchTibberPrices()
     https.begin(client, tibberApi);
     https.addHeader("Content-Type", "application/json"); // Add necessary headers
     https.addHeader("Authorization", buffer);            // Add necessary headers
-    String payload = "{\"query\": \"{viewer { homes { currentSubscription{ priceInfo{ today{ total  } tomorrow { total  }}}}}}\"} ";
+    String payload = "{\"query\": \"{viewer { homes { currentSubscription{ priceInfo(resolution:QUARTER_HOURLY){ today{ total  } tomorrow { total  }}}}}}\"} ";
     Serial.print("STRING PAYLOAD: ");
     Serial.println(payload);
     int httpCode = https.POST(payload);
@@ -259,16 +259,16 @@ void epaperOutput()
 
     // ####### Draw bars ##################################################
     int d = 0, p = 0;
-    for (int h = 13; h < 48; h++)
+    for (int qh = 52; qh < 192; qh++)
     {
-        if (h > 23 && d == 0)
+        if (qh > 23 && d == 0)
         {
             d = 1;
-            p = 24;
+            p = 96;
         }
-        int bar_height = long(graphHeight * ((price[d][h - p] - minRounded) * 100 / spread) / 100); // max. graphHeight pixels high
-        int hh = (h - 13) * 25;                                                                     // Last number affects the y-filling of the bars --> must also be adjusted in the labeling
-        epd_fill_rect(/*x0*/ 70 + hh, /*y=*/EPD_HEIGHT - 80 - bar_height, 8, bar_height, 0x0000, frameBuffer);
+        int bar_height = long(graphHeight * ((price[d][qh - p] - minRounded) * 100 / spread) / 100); // max. graphHeight pixels high
+        int hh = (qh - 52) * 6; // 6,25                                   // Last number affects the y-filling of the bars --> must also be adjusted in the labeling
+        epd_fill_rect(/*x0*/ 70 + hh, /*y=*/EPD_HEIGHT - 80 - bar_height, 2, bar_height, 0x0000, frameBuffer);
     }
     // ####### End of bar drawing #########################################
 
@@ -302,7 +302,7 @@ void epaperOutput()
     int yyy = EPD_HEIGHT - 50;
     for (int yt = 0; yt < 18; yt++)
     {                          // Label X-axis
-        int ytt = yt * 2 * 25; // Same number as above must be used :)
+        int ytt = yt * 2 * 24; // Same number as above must be used :)
         int h = 13 + 2 * yt;
         if (h > 23)
             h = h - 24;
@@ -335,10 +335,10 @@ void epaperOutput()
     sprintf(buffer, "Mean value lines: mw0: %4d, mw1: %4d, Mean price 0: %4d, Mean value 1: %4d, \n", mw0, mw1, priceAverage[0], average[1]);
     Serial.print(buffer);
 
-    for (p = 0; p < 11 * 25; p += 8)
+    for (p = 0; p < 11 * 24; p += 8)
         epd_fill_rect(/*x0*/ 60 + p, /*y=*/mw0, 2, 5, 0x0080, frameBuffer);
-    for (p = 0; p < 24 * 25; p += 8)
-        epd_fill_rect(/*x0*/ 60 + 11 * 25 + 5 + p, /*y=*/mw1, 2, 5, 0x0080, frameBuffer);
+    for (p = 0; p < 24 * 24; p += 8)
+        epd_fill_rect(/*x0*/ 60 + 11 * 24 + 5 + p, /*y=*/mw1, 2, 5, 0x0080, frameBuffer);
     // ####### End of mean value lines ####################################
 
     // ####### Error handling #############################################
