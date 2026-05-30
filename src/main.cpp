@@ -23,10 +23,10 @@ const char *timeZone = "CET-1CEST,M3.5.0/03,M10.5.0/03"; // TimeZone rule for Eu
 uint8_t *frameBuffer = NULL;
 JsonDocument doc;                                               // Memory for the JSON data before deserializing
 char buffer[200];                                               // Buffer for sprintf
-int price[2][BARS_PER_DAY];                                     // Memory for prices, each for the current and the next day
-int minPrice[2] = {0, 0}, maxPrice[2] = {0, 0};                 // Each for the current and the next day
-long priceAverage[2] = {0, 0};                                  // Average value, each for the current and the next day
-long average[2] = {0, 0};                                       // Here the average from 13-24h of the current day and 0-23h of the next day for ePaper display
+int price[BARS_PER_DAY];                                        // Memory for prices
+int minPrice = 0, maxPrice = 0;                                 // Mininal and maximal price for the day, used for the ePaper display
+long priceAverage = 0;                                          // Average value
+long average = 0;                                               // Here the average 0-23h for ePaper display
 int minVal = 30000, maxVal = 0, minRounded, maxRounded, spread; // For ePaper display
 GFXfont currentFont;                                            // Variable for the current font and size
 uint16_t graphHeight = 440;                                     // Height of the chart
@@ -69,88 +69,67 @@ void extractPricesFromJson() // Extract prices from JSON string and output in a 
 {
     char buffer[200];
     Serial.println("extractPricesFromJson:");
-    char day[2][9] = {"today", "tomorrow"};
     double priceInDouble;
-    priceAverage[0] = 0;
-    priceAverage[1] = 0;
-    for (int dayIndex = 0; dayIndex < 2; dayIndex++)
+    priceAverage = 0;
+
+    for (int time = 0; time < BARS_PER_DAY; time++)
     {
-        for (int time = 0; time < BARS_PER_DAY; time++)
+        priceInDouble = doc["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"]["today"][time]["total"];
+        price[time] = int(10000 * priceInDouble);
+        sprintf(buffer, "time=%2d, Price= %4d\n", time, price[time]);
+        Serial.print(buffer);
+        int timeAdjusted;
+        if (time == BARS_PER_DAY - 1) // For the last quarter of the day, use the price of the last quarter for min/max calculation
+            timeAdjusted = 0;
+        else
+            timeAdjusted = time;
+        if (time > 0)
         {
-            priceInDouble = doc["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"][day[dayIndex]][time]["total"];
-            price[dayIndex][time] = int(10000 * priceInDouble);
-            sprintf(buffer, "Day= %9s, dayIndex=%2d, time=%2d, Price= %4d\n", day[dayIndex], dayIndex, time, price[dayIndex][time]);
-            Serial.print(buffer);
-            int timeAdjusted;
-            if (time == BARS_PER_DAY - 1) // For the last quarter of the day, use the price of the last quarter for min/max calculation
-                timeAdjusted = 0;
-            else
-                timeAdjusted = time;
-            if (time > 0)
-            {
-                if (price[dayIndex][minPrice[dayIndex]] > price[dayIndex][timeAdjusted])
-                    minPrice[dayIndex] = timeAdjusted;
-                if (price[dayIndex][maxPrice[dayIndex]] < price[dayIndex][timeAdjusted])
-                    maxPrice[dayIndex] = timeAdjusted;
-            }
-            priceAverage[dayIndex] = price[dayIndex][time] + priceAverage[dayIndex]; // Calculate average value part 1
+            if (price[minPrice] > price[timeAdjusted])
+                minPrice = timeAdjusted;
+            if (price[maxPrice] < price[timeAdjusted])
+                maxPrice = timeAdjusted;
         }
-        priceAverage[dayIndex] = priceAverage[dayIndex] / BARS_PER_DAY; // Calculate average value part 2
+        priceAverage = price[time] + priceAverage; // Calculate average value part 1
     }
-    Serial.println("\n            Today        ||||             Tomorrow"); // Output in compact table
+    priceAverage = priceAverage / BARS_PER_DAY; // Calculate average value part 2
+
+
+
+    Serial.println("\n            Today        ||||"); // Output in compact table
     for (int timeAdjusted = 0; timeAdjusted < 12; timeAdjusted++)
     {
-        sprintf(buffer, "time=%2d: %4d || time=%2d: %4d |||| time=%2d: %4d || time=%2d: %4d ||\n", timeAdjusted, price[0][timeAdjusted], timeAdjusted + (BARS_PER_DAY/2), price[0][timeAdjusted + (BARS_PER_DAY/2)], timeAdjusted, price[1][timeAdjusted], timeAdjusted + (BARS_PER_DAY/2), price[1][timeAdjusted + (BARS_PER_DAY/2)]);
+        sprintf(buffer, "time=%2d: %4d || time=%2d: %4d ||||\n", timeAdjusted, price[timeAdjusted], timeAdjusted + (BARS_PER_DAY/2), price[timeAdjusted + (BARS_PER_DAY/2)]);
         Serial.print(buffer);
     }
-    sprintf(buffer, " Min time: %2d, %4d,        |||| Min time: %2d, %4d, \n", minPrice[0], price[0][minPrice[0]], minPrice[1], price[1][minPrice[1]]);
-    sprintf(buffer + strlen(buffer), " Max time: %2d, %4d,        |||| Max time: %2d, %4d, \n", maxPrice[0], price[0][maxPrice[0]], maxPrice[1], price[1][maxPrice[1]]);
-    sprintf(buffer + strlen(buffer), "Average: %4d         |||| Average: %4d\n\n", priceAverage[0], priceAverage[1]);
+    sprintf(buffer, " Min time: %2d, %4d,        ||||\n", minPrice, price[minPrice]);
+    sprintf(buffer + strlen(buffer), " Max time: %2d, %4d,        ||||\n", maxPrice, price[maxPrice]);
+    sprintf(buffer + strlen(buffer), "Average: %4d         ||||\n\n", priceAverage);
     Serial.print(buffer);
-    sprintf(buffer, "   <time:%2d, >time:%2d, =:%4d  ||||   <time:%2d, >time:%2d, =:%4d \n", minPrice[0], maxPrice[0], priceAverage[0], minPrice[1], maxPrice[1], priceAverage[1]);
+    sprintf(buffer, "   <time:%2d, >time:%2d, =:%4d  ||||\n", minPrice, maxPrice, priceAverage);
     Serial.print(buffer);
 }
 
 void calculateEpaperMinMax()
 {
-    average[0] = 0; // Here the average from 13-24h of the current day and 0-23h of the next day for ePaper display
-    average[1] = 0;
+    average = 0;
     minVal = 30000, maxVal = 0, minRounded, maxRounded, spread; // For ePaper display
-    int sumTomorrow = 0;
-
-    for (int time = (BARS_PER_DAY - BARS_PER_DAY_REDUCED); time < BARS_PER_DAY; time++)
-    { // Determine min, max, and average values for the first day, 13-23h
-        if (price[0][time] < minVal)
-            minVal = price[0][time];
-        if (price[0][time] > maxVal)
-            maxVal = price[0][time];
-        average[0] = average[0] + price[0][time];
-    }
 
     for (int time = 0; time < BARS_PER_DAY; time++)
-    {
-        sumTomorrow = sumTomorrow + price[1][time];
-    }
-    if (sumTomorrow != 0)
-    {
-        for (int time = 0; time < BARS_PER_DAY; time++)
-        { // Determine min, max, and average values for the second day, 0-23h
-            if (price[1][time] < minVal)
-                minVal = price[1][time];
-            if (price[1][time] > maxVal)
-                maxVal = price[1][time];
-            average[1] = average[1] + price[1][time];
-        }
-        tibberPriceUpdated = true;
+    { // Determine min, max, and average values for the day
+        if (price[time] < minVal)
+            minVal = price[time];
+        if (price[time] > maxVal)
+            maxVal = price[time];
+        average = average + price[time];
     }
 
-    average[0] = average[0] / BARS_PER_DAY_REDUCED;  // Day1 from 13-23h
-    average[1] = average[1] / BARS_PER_DAY;          // Day2 from 0-23h
+    average = average / BARS_PER_DAY;                // Day
     minRounded = (minVal / 100 - 2) * 100;           // Rounded down to nearest 100 -200
     maxRounded = (maxVal / 100 + 1) * 100;           // Rounded up to nearest 100 +100
     spread = maxRounded - minRounded;                // Spread
-    sprintf(buffer, "Average0: %4d, Average1: %4d, Minimum: %4d, Maximum: %4d, minRounded: %4d, maxRounded: %4d, spread: %4d\n",
-            average[0], average[1], minVal, maxVal, minRounded, maxRounded, spread);
+    sprintf(buffer, "Average: %4d, Minimum: %4d, Maximum: %4d, minRounded: %4d, maxRounded: %4d, spread: %4d\n",
+            average, minVal, maxVal, minRounded, maxRounded, spread);
     Serial.print(buffer);
 }
 
@@ -165,9 +144,9 @@ void fetchTibberPrices()
     https.addHeader("Content-Type", "application/json"); // Add necessary headers
     https.addHeader("Authorization", buffer);            // Add necessary headers
 #ifdef QUARTER_HOUR_RESOLUTION
-    String payload = "{\"query\": \"{viewer { homes { currentSubscription{ priceInfo(resolution:QUARTER_HOURLY){ today{ total  } tomorrow { total  }}}}}}\"} ";
+    String payload = "{\"query\": \"{viewer { homes { currentSubscription{ priceInfo(resolution:QUARTER_HOURLY){ today{ total  }}}}}}\"} ";
 #else
-    String payload = "{\"query\": \"{viewer { homes { currentSubscription{ priceInfo{ today{ total  } tomorrow { total  }}}}}}\"} ";
+    String payload = "{\"query\": \"{viewer { homes { currentSubscription{ priceInfo{ today{ total  }}}}}}\"} ";
 #endif
     Serial.print("STRING PAYLOAD: ");
     Serial.println(payload);
@@ -207,22 +186,11 @@ void calculateDeepSleepTime()
 
         tmNextUpdate = tmNow;
 
-        tmNextUpdate.tm_hour = 12;
+        tmNextUpdate.tm_hour = 1;
         tmNextUpdate.tm_min = 0;
         tmNextUpdate.tm_sec = 0;
-        if (tmNow.tm_hour == 12 || (tmNow.tm_hour == 13 && tmNow.tm_min < 15))
-        {
-            tmNextUpdate.tm_hour = 13;
-            tmNextUpdate.tm_min = 15;
-            tmNextUpdate.tm_sec = 0;
-        }
-
-        // If the prices were already updated today, add one day
-        if (tmNow.tm_hour > 13 || (tmNow.tm_hour == 13 && tmNow.tm_min >= 15))
-        {
-            tmNextUpdate.tm_mday += 1;
-            updateReady = true; // updateReady will be true if the current time is after 13:15
-        }
+        tmNextUpdate.tm_mday += 1;
+        updateReady = true;
 
         // Time in seconds until the next update
         // time_t nextUpdateEpoch = mktime(&tmNextUpdate);
@@ -263,20 +231,13 @@ void epaperOutput()
     int cursor_y;
 
     // ####### Draw bars ##################################################
-    int d = 0, p = 0;
-    for (int qh = (BARS_PER_DAY - BARS_PER_DAY_REDUCED); qh < (BARS_PER_DAY * 2); qh++)
+    for (int qh = 0; qh < BARS_PER_DAY; qh++)
     {
-        if (qh > (BARS_PER_DAY - 1) && d == 0)
-        {
-            d = 1;
-            p = BARS_PER_DAY;
-        }
-        int bar_height = long(graphHeight * ((price[d][qh - p] - minRounded) * 100 / spread) / 100); // max. graphHeight pixels high
-        int hh = qh - (BARS_PER_DAY - BARS_PER_DAY_REDUCED);
+        int bar_height = long(graphHeight * ((price[qh] - minRounded) * 100 / spread) / 100); // max. graphHeight pixels high
 #ifdef QUARTER_HOUR_RESOLUTION
-        hh *= (HOUR_SPACING / 4); // Last number affects the y-filling of the bars
+        int hh = qh * (HOUR_SPACING / 4); // Last number affects the y-filling of the bars
 #else
-        hh *= HOUR_SPACING; // Last number affects the y-filling of the bars
+        int hh = qh * HOUR_SPACING; // Last number affects the y-filling of the bars
 #endif
         epd_fill_rect(/*x0*/ 70 + hh, /*y=*/EPD_HEIGHT - 80 - bar_height, BAR_WIDTH, bar_height, 0x0000, frameBuffer);
     }
@@ -310,16 +271,11 @@ void epaperOutput()
 
     // ####### Write X-axis ################################################
     int yyy = EPD_HEIGHT - 50;
-    for (int yt = 0; yt < 18; yt++)
+    for (int yt = 0; yt < 12; yt++)
     {                          // Label X-axis
         int ytt = yt * 2 * HOUR_SPACING;
-        int h = 13 + 2 * yt;
-        if (h > 23)
-            h = h - 24;
-        int sp = 0;
-        if (h < 10)
-            sp = 6;
-        cursor_x = 62 + ytt + sp;
+        int h = 2 * yt;
+        cursor_x = 62 + ytt;
         cursor_y = yyy;
         writeln((GFXfont *)&currentFont, (char *)String(h).c_str(), &cursor_x, &cursor_y, NULL);
     }
@@ -328,11 +284,7 @@ void epaperOutput()
     time_t timeDay = time(NULL);
     // time(&now);
     localtime_r(&timeDay, &tmDay);
-    strftime(buffer, 128, "%a, %d.%m.                                     Stunde                                     ", &tmDay);
-    timeDay = (timeDay + 86400);
-    localtime_r(&timeDay, &tmDay);
-
-    strftime(buffer + strlen(buffer), 128, "%a, %d.%m", &tmDay);
+    strftime(buffer, 128, "%a, %d.%m.                                     Stunde", &tmDay);
     cursor_x = 135;
     cursor_y = EPD_HEIGHT - 16;
     writeln((GFXfont *)&currentFont, buffer, &cursor_x, &cursor_y, NULL);
@@ -340,15 +292,12 @@ void epaperOutput()
 
     // ####### Mean value lines ###########################################
     // int mw0 = EPD_HEIGHT - 80 - (440 * (mean_value[0] - min_rounded)) / spread; // Mean value from 13-23h
-    int mw0 = EPD_HEIGHT - 80 - (graphHeight * (priceAverage[0] - minRounded)) / spread; // Mean value from 0 - 23h
-    int mw1 = EPD_HEIGHT - 80 - (graphHeight * (average[1] - minRounded)) / spread;
-    sprintf(buffer, "Mean value lines: mw0: %4d, mw1: %4d, Mean price 0: %4d, Mean value 1: %4d, \n", mw0, mw1, priceAverage[0], average[1]);
+    int mw = EPD_HEIGHT - 80 - (graphHeight * (priceAverage - minRounded)) / spread; // Mean value from 0 - 23h
+    sprintf(buffer, "Mean value lines: mw: %4d, Mean price: %4d,\n", mw, priceAverage);
     Serial.print(buffer);
 
-    for (p = 0; p < 11 * HOUR_SPACING; p += 8)
-        epd_fill_rect(/*x0*/ 60 + p, /*y=*/mw0, 2, 5, 0x0080, frameBuffer);
-    for (p = 0; p < 24 * HOUR_SPACING; p += 8)
-        epd_fill_rect(/*x0*/ 60 + 11 * HOUR_SPACING + 5 + p, /*y=*/mw1, 2, 5, 0x0080, frameBuffer);
+    for (int p = 0; p < 24 * HOUR_SPACING; p += 8)
+        epd_fill_rect(/*x0*/ 60 + p, /*y=*/mw, 2, 5, 0x0080, frameBuffer);
     // ####### End of mean value lines ####################################
 
     // ####### Error handling #############################################
